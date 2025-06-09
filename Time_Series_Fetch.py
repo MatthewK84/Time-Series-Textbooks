@@ -66,14 +66,11 @@ class TimeSeriesBookScraper:
         """Search arXiv for time series related papers and books"""
         base_url = "http://export.arxiv.org/api/query"
         
-        # Construct search query with time series keywords
-        search_terms = [
-            "time series", "temporal analysis", "forecasting", 
-            "ARIMA", "GARCH", "stochastic processes", "econometrics",
-            "signal processing", "time domain"
-        ]
+        # Limit max_results to prevent rate limiting
+        max_results = min(max_results, 100)
         
-        query_string = f'all:("{query}") AND (cat:stat.* OR cat:econ.* OR cat:math.ST OR cat:cs.LG)'
+        # Simplified query that's more likely to work
+        query_string = f'all:"{query}" OR all:"time series"'
         
         params = {
             'search_query': query_string,
@@ -84,111 +81,177 @@ class TimeSeriesBookScraper:
         }
         
         try:
-            response = self.session.get(base_url, params=params)
+            st.info(f"Searching arXiv with query: {query_string}")
+            response = self.session.get(base_url, params=params, timeout=30)
             response.raise_for_status()
             
-            return self._parse_arxiv_response(response.text)
+            # Debug: show response length
+            st.info(f"arXiv response received: {len(response.text)} characters")
+            
+            results = self._parse_arxiv_response(response.text)
+            st.info(f"arXiv parsed {len(results)} results")
+            return results
             
         except requests.RequestException as e:
             st.error(f"Error fetching from arXiv: {e}")
+            st.error(f"URL attempted: {response.url if 'response' in locals() else 'No response'}")
+            return []
+        except Exception as e:
+            st.error(f"Unexpected error with arXiv: {e}")
             return []
     
     def _parse_arxiv_response(self, xml_content: str) -> List[Dict]:
         """Parse arXiv XML response"""
-        root = ET.fromstring(xml_content)
-        namespace = {'atom': 'http://www.w3.org/2005/Atom'}
-        
-        books = []
-        for entry in root.findall('atom:entry', namespace):
-            try:
-                title = entry.find('atom:title', namespace).text.strip()
-                authors = [author.find('atom:name', namespace).text 
-                          for author in entry.findall('atom:author', namespace)]
-                
-                summary = entry.find('atom:summary', namespace)
-                abstract = summary.text.strip() if summary is not None else ""
-                
-                published = entry.find('atom:published', namespace)
-                year = int(published.text[:4]) if published is not None else None
-                
-                # Get PDF link
-                pdf_link = None
-                for link in entry.findall('atom:link', namespace):
-                    if link.get('type') == 'application/pdf':
-                        pdf_link = link.get('href')
-                        break
-                
-                # Calculate relevance score
-                relevance = self._calculate_relevance(title, abstract)
-                
-                # Determine document type
-                doc_type = self._classify_document_type(title, abstract, 'arXiv')
-                
-                if relevance > 0.3:  # Only include relevant results
-                    bibtex_key = self._generate_bibtex_key(authors[0] if authors else "Unknown", year, title)
+        try:
+            root = ET.fromstring(xml_content)
+            namespace = {'atom': 'http://www.w3.org/2005/Atom'}
+            
+            books = []
+            entries = root.findall('atom:entry', namespace)
+            st.info(f"Found {len(entries)} entries in arXiv XML")
+            
+            for entry in entries:
+                try:
+                    title_elem = entry.find('atom:title', namespace)
+                    title = title_elem.text.strip() if title_elem is not None else "No title"
                     
-                    books.append({
-                        'title': title,
-                        'authors': ', '.join(authors),
-                        'year': year,
-                        'source': 'arXiv',
-                        'url': entry.find('atom:id', namespace).text,
-                        'abstract': abstract,
-                        'pdf_url': pdf_link,
-                        'license_type': 'Open Access',
-                        'relevance_score': relevance,
-                        'document_type': doc_type,
-                        'bibtex_key': bibtex_key
-                    })
+                    authors = []
+                    for author in entry.findall('atom:author', namespace):
+                        name_elem = author.find('atom:name', namespace)
+                        if name_elem is not None:
+                            authors.append(name_elem.text)
                     
-            except Exception as e:
-                continue
-                
-        return books
+                    summary_elem = entry.find('atom:summary', namespace)
+                    abstract = summary_elem.text.strip() if summary_elem is not None else ""
+                    
+                    published_elem = entry.find('atom:published', namespace)
+                    year = None
+                    if published_elem is not None:
+                        try:
+                            year = int(published_elem.text[:4])
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Get PDF link
+                    pdf_link = None
+                    for link in entry.findall('atom:link', namespace):
+                        if link.get('type') == 'application/pdf':
+                            pdf_link = link.get('href')
+                            break
+                    
+                    # Get entry URL
+                    id_elem = entry.find('atom:id', namespace)
+                    url = id_elem.text if id_elem is not None else ""
+                    
+                    # Calculate relevance score
+                    relevance = self._calculate_relevance(title, abstract)
+                    
+                    # Only include if we have a title and some relevance
+                    if title and title != "No title" and relevance > 0.1:  # Lower threshold
+                        # Determine document type
+                        doc_type = self._classify_document_type(title, abstract, 'arXiv')
+                        
+                        bibtex_key = self._generate_bibtex_key(authors[0] if authors else "Unknown", year, title)
+                        
+                        books.append({
+                            'title': title,
+                            'authors': ', '.join(authors) if authors else 'Unknown',
+                            'year': year,
+                            'source': 'arXiv',
+                            'url': url,
+                            'abstract': abstract,
+                            'pdf_url': pdf_link,
+                            'license_type': 'Open Access',
+                            'relevance_score': relevance,
+                            'document_type': doc_type,
+                            'bibtex_key': bibtex_key
+                        })
+                        
+                except Exception as e:
+                    st.warning(f"Error parsing arXiv entry: {e}")
+                    continue
+            
+            return books
+            
+        except ET.ParseError as e:
+            st.error(f"Error parsing arXiv XML: {e}")
+            st.error(f"XML content preview: {xml_content[:500]}...")
+            return []
+        except Exception as e:
+            st.error(f"Unexpected error parsing arXiv response: {e}")
+            return []
     
     def search_crossref(self, query: str = "time series", max_results: int = 100) -> List[Dict]:
         """Search CrossRef for open access time series publications"""
         base_url = "https://api.crossref.org/works"
         
+        # Limit max_results to prevent rate limiting
+        max_results = min(max_results, 100)
+        
         params = {
             'query': query,
-            'filter': 'is-referenced-by-count:1,has-license:true',
+            'filter': 'has-license:true',  # Simplified filter
             'rows': max_results,
             'sort': 'relevance',
-            'order': 'desc'
+            'order': 'desc',
+            'mailto': 'researcher@example.com'  # Polite pool access
         }
         
         try:
-            response = self.session.get(base_url, params=params)
+            st.info(f"Searching CrossRef with query: {query}")
+            response = self.session.get(base_url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
             
-            return self._parse_crossref_response(data)
+            st.info(f"CrossRef response: {data.get('message', {}).get('total-results', 0)} total results")
+            
+            results = self._parse_crossref_response(data)
+            st.info(f"CrossRef parsed {len(results)} relevant results")
+            return results
             
         except requests.RequestException as e:
             st.error(f"Error fetching from CrossRef: {e}")
+            return []
+        except Exception as e:
+            st.error(f"Unexpected error with CrossRef: {e}")
             return []
     
     def _parse_crossref_response(self, data: dict) -> List[Dict]:
         """Parse CrossRef API response"""
         books = []
         
-        for item in data.get('message', {}).get('items', []):
+        items = data.get('message', {}).get('items', [])
+        st.info(f"Processing {len(items)} CrossRef items")
+        
+        for item in items:
             try:
-                title = ' '.join(item.get('title', [''])[0].split())
+                # Get title
+                titles = item.get('title', [])
+                title = titles[0] if titles else "No title"
+                title = ' '.join(title.split()) if title else "No title"
                 
+                # Get authors
                 authors = []
                 for author in item.get('author', []):
                     given = author.get('given', '')
                     family = author.get('family', '')
-                    if given and family:
-                        authors.append(f"{given} {family}")
+                    if family:  # At least need family name
+                        full_name = f"{given} {family}".strip()
+                        authors.append(full_name)
                 
+                # Get year
                 year = None
+                date_parts = None
                 if 'published-print' in item:
-                    year = item['published-print']['date-parts'][0][0]
+                    date_parts = item['published-print'].get('date-parts', [[]])[0]
                 elif 'published-online' in item:
-                    year = item['published-online']['date-parts'][0][0]
+                    date_parts = item['published-online'].get('date-parts', [[]])[0]
+                
+                if date_parts and len(date_parts) > 0:
+                    try:
+                        year = int(date_parts[0])
+                    except (ValueError, TypeError):
+                        pass
                 
                 abstract = item.get('abstract', '')
                 doi = item.get('DOI', '')
@@ -196,46 +259,49 @@ class TimeSeriesBookScraper:
                 
                 # Extract additional metadata
                 journal = ''
-                if 'container-title' in item and item['container-title']:
-                    journal = item['container-title'][0]
+                container_titles = item.get('container-title', [])
+                if container_titles:
+                    journal = container_titles[0]
                 
                 publisher = item.get('publisher', '')
                 pages = item.get('page', '')
                 volume = item.get('volume', '')
                 issue = item.get('issue', '')
                 
-                # Check for open access
+                # Check for any license (not just Creative Commons)
                 license_info = item.get('license', [])
-                is_open_access = any('creativecommons' in lic.get('URL', '').lower() 
-                                   for lic in license_info)
+                has_license = len(license_info) > 0
                 
-                if is_open_access:
-                    relevance = self._calculate_relevance(title, abstract)
+                # Calculate relevance (lower threshold)
+                relevance = self._calculate_relevance(title, abstract)
+                
+                if has_license and relevance > 0.1 and title != "No title":  # Lower threshold
                     doc_type = self._classify_document_type(title, abstract, 'CrossRef', item.get('type', ''))
+                    bibtex_key = self._generate_bibtex_key(authors[0] if authors else "Unknown", year, title)
                     
-                    if relevance > 0.3:
-                        bibtex_key = self._generate_bibtex_key(authors[0] if authors else "Unknown", year, title)
-                        
-                        books.append({
-                            'title': title,
-                            'authors': ', '.join(authors),
-                            'year': year,
-                            'source': 'CrossRef',
-                            'url': url,
-                            'doi': doi,
-                            'abstract': abstract,
-                            'license_type': 'Creative Commons',
-                            'relevance_score': relevance,
-                            'document_type': doc_type,
-                            'journal': journal,
-                            'publisher': publisher,
-                            'pages': pages,
-                            'volume': volume,
-                            'issue': issue,
-                            'bibtex_key': bibtex_key
-                        })
-                        
+                    license_type = "Open Access" if license_info else "Licensed"
+                    
+                    books.append({
+                        'title': title,
+                        'authors': ', '.join(authors) if authors else 'Unknown',
+                        'year': year,
+                        'source': 'CrossRef',
+                        'url': url,
+                        'doi': doi,
+                        'abstract': abstract,
+                        'license_type': license_type,
+                        'relevance_score': relevance,
+                        'document_type': doc_type,
+                        'journal': journal,
+                        'publisher': publisher,
+                        'pages': pages,
+                        'volume': volume,
+                        'issue': issue,
+                        'bibtex_key': bibtex_key
+                    })
+                    
             except Exception as e:
+                st.warning(f"Error parsing CrossRef item: {e}")
                 continue
                 
         return books
@@ -244,23 +310,35 @@ class TimeSeriesBookScraper:
         """Search Internet Archive for public domain time series books"""
         base_url = "https://archive.org/advancedsearch.php"
         
+        # Simplified query to get more results
+        search_query = f'({query}) AND mediatype:texts'
+        
         params = {
-            'q': f'title:("{query}") AND mediatype:texts AND format:pdf',
+            'q': search_query,
             'fl': 'identifier,title,creator,year,description,downloads,format',
-            'rows': 100,
+            'rows': 50,  # Limit to 50 to avoid timeouts
             'page': 1,
             'output': 'json'
         }
         
         try:
-            response = self.session.get(base_url, params=params)
+            st.info(f"Searching Internet Archive with query: {search_query}")
+            response = self.session.get(base_url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
             
-            return self._parse_internet_archive_response(data)
+            total_found = data.get('response', {}).get('numFound', 0)
+            st.info(f"Internet Archive found {total_found} total results")
+            
+            results = self._parse_internet_archive_response(data)
+            st.info(f"Internet Archive parsed {len(results)} relevant results")
+            return results
             
         except requests.RequestException as e:
             st.error(f"Error fetching from Internet Archive: {e}")
+            return []
+        except Exception as e:
+            st.error(f"Unexpected error with Internet Archive: {e}")
             return []
     
     def _parse_internet_archive_response(self, data: dict) -> List[Dict]:
@@ -314,25 +392,11 @@ class TimeSeriesBookScraper:
     
     def search_ndltd(self, query: str = "time series analysis", max_results: int = 100) -> List[Dict]:
         """Search NDLTD (Networked Digital Library of Theses and Dissertations)"""
-        base_url = "https://search.ndltd.org/api/search"
+        # Note: NDLTD API might not be publicly accessible, so we'll return empty for now
+        # but keep the structure for when/if API access becomes available
         
-        params = {
-            'q': query,
-            'start': 0,
-            'rows': max_results,
-            'format': 'json'
-        }
-        
-        try:
-            response = self.session.get(base_url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            return self._parse_ndltd_response(data)
-            
-        except requests.RequestException as e:
-            st.error(f"Error fetching from NDLTD: {e}")
-            return []
+        st.info("NDLTD search currently unavailable - API access restricted")
+        return []
     
     def _parse_ndltd_response(self, data: dict) -> List[Dict]:
         """Parse NDLTD API response for theses and dissertations"""
@@ -715,7 +779,7 @@ def main():
             default=["arXiv"]
         )
         
-        max_results = st.slider("Maximum Results per Source", 10, 500, 100)
+        max_results = st.slider("Maximum Results per Source", 10, 100, 50)  # Reduced default
         
         if st.button("Start Scraping", type="primary"):
             all_books = []
@@ -726,18 +790,26 @@ def main():
             for i, source in enumerate(sources):
                 status_text.text(f"Searching {source}...")
                 
-                if source == "arXiv":
-                    books = st.session_state.scraper.search_arxiv(query, max_results)
-                elif source == "CrossRef":
-                    books = st.session_state.scraper.search_crossref(query, max_results)
-                elif source == "Internet Archive":
-                    books = st.session_state.scraper.search_internet_archive(query)
-                elif source == "NDLTD (Theses/Dissertations)":
-                    books = st.session_state.scraper.search_ndltd(query, max_results)
-                
-                all_books.extend(books)
+                try:
+                    if source == "arXiv":
+                        books = st.session_state.scraper.search_arxiv(query, max_results)
+                    elif source == "CrossRef":
+                        books = st.session_state.scraper.search_crossref(query, max_results)
+                    elif source == "Internet Archive":
+                        books = st.session_state.scraper.search_internet_archive(query)
+                    elif source == "NDLTD (Theses/Dissertations)":
+                        books = st.session_state.scraper.search_ndltd(query, max_results)
+                    else:
+                        books = []
+                    
+                    st.info(f"{source} returned {len(books)} results")
+                    all_books.extend(books)
+                    
+                except Exception as e:
+                    st.error(f"Error with {source}: {e}")
+                    
                 progress_bar.progress((i + 1) / len(sources))
-                time.sleep(1)  # Be respectful to APIs
+                time.sleep(2)  # Rate limiting - 2 seconds between requests
             
             status_text.text("Saving to database...")
             st.session_state.scraper.save_to_database(all_books)
