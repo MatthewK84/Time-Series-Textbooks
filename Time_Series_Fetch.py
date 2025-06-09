@@ -511,6 +511,36 @@ class TimeSeriesBookScraper:
         year_str = str(year) if year else "Unknown"
         
         return f"{author_surname}{year_str}{title_word}"
+    
+    def _calculate_relevance(self, title: str, abstract: str) -> float:
+        """Calculate relevance score for time series content"""
+        text = f"{title} {abstract}".lower()
+        
+        # Define weighted keywords
+        keywords = {
+            'time series': 3.0,
+            'temporal analysis': 2.5,
+            'forecasting': 2.0,
+            'arima': 2.0,
+            'garch': 2.0,
+            'stochastic process': 2.0,
+            'econometrics': 1.5,
+            'signal processing': 1.5,
+            'time domain': 1.5,
+            'frequency domain': 1.5,
+            'seasonal': 1.0,
+            'trend': 0.8,
+            'correlation': 0.5,
+            'regression': 0.3
+        }
+        
+        score = 0.0
+        for keyword, weight in keywords.items():
+            if keyword in text:
+                score += weight
+        
+        # Normalize score
+        return min(score / 10.0, 1.0)
         """Calculate relevance score for time series content"""
         text = f"{title} {abstract}".lower()
         
