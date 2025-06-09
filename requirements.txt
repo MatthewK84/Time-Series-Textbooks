@@ -1,0 +1,72 @@
+# Time Series Books Scraper & Bibliography System
+# Requirements file for Streamlit application
+
+# Core web framework
+streamlit>=1.28.0
+
+# Data manipulation and analysis
+pandas>=1.5.0
+numpy>=1.24.0
+
+# HTTP requests and web scraping
+requests>=2.28.0
+urllib3>=1.26.0
+
+# Database
+sqlite3  # Built into Python standard library, no separate install needed
+
+# XML parsing (built into Python)
+# xml.etree.ElementTree  # Built into Python standard library
+
+# Citation management
+bibtexparser>=1.4.0
+
+# Date and time handling
+# datetime  # Built into Python standard library
+
+# Regular expressions
+# re  # Built into Python standard library
+
+# JSON handling
+# json  # Built into Python standard library
+
+# File system operations
+# os  # Built into Python standard library
+
+# Type hints
+typing>=3.7.0  # Built into Python 3.7+, but explicit for compatibility
+
+# Time delays for API rate limiting
+# time  # Built into Python standard library
+
+# Optional: Enhanced data visualization (if you want to add charts)
+plotly>=5.0.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Optional: Progress bars (alternative to streamlit's built-in)
+tqdm>=4.64.0
+
+# Optional: Enhanced text processing
+nltk>=3.8.0
+textblob>=0.17.0
+
+# Optional: PDF processing (if you want to add PDF text extraction)
+PyPDF2>=3.0.0
+pdfplumber>=0.7.0
+
+# Optional: Excel export support
+openpyxl>=3.0.0
+xlsxwriter>=3.0.0
+
+# Optional: Enhanced CSV parsing
+chardet>=5.0.0
+
+# Development and testing (optional)
+pytest>=7.0.0
+black>=22.0.0
+flake8>=5.0.0
+
+# Security and certificates
+certifi>=2022.12.7
+urllib3[secure]>=1.26.0
