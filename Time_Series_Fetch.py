@@ -746,7 +746,7 @@ def main():
         
         sources = st.multiselect(
             "Select Sources",
-            ["arXiv", "CrossRef", "Internet Archive", "NDLTD (Theses/Dissertations)"],
+            ["arXiv", "CrossRef", "Internet Archive"],
             default=["arXiv"]
         )
         
@@ -768,8 +768,6 @@ def main():
                         books = st.session_state.scraper.search_crossref(query, max_results)
                     elif source == "Internet Archive":
                         books = st.session_state.scraper.search_internet_archive(query)
-                    elif source == "NDLTD (Theses/Dissertations)":
-                        books = st.session_state.scraper.search_ndltd(query, max_results)
                     else:
                         books = []
                     
@@ -804,7 +802,7 @@ def main():
         with col2:
             source_filter = st.selectbox(
                 "Source Filter",
-                ["All", "arXiv", "CrossRef", "Internet Archive", "NDLTD"]
+                ["All", "arXiv", "CrossRef", "Internet Archive"]
             )
         
         with col3:
