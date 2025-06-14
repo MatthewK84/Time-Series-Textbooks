@@ -390,65 +390,6 @@ class TimeSeriesBookScraper:
                 
         return books
     
-    def search_ndltd(self, query: str = "time series analysis", max_results: int = 100) -> List[Dict]:
-        """Search NDLTD (Networked Digital Library of Theses and Dissertations)"""
-        # Note: NDLTD API might not be publicly accessible, so we'll return empty for now
-        # but keep the structure for when/if API access becomes available
-        
-        st.info("NDLTD search currently unavailable - API access restricted")
-        return []
-    
-    def _parse_ndltd_response(self, data: dict) -> List[Dict]:
-        """Parse NDLTD API response for theses and dissertations"""
-        books = []
-        
-        for doc in data.get('response', {}).get('docs', []):
-            try:
-                title = doc.get('title', [''])[0] if isinstance(doc.get('title'), list) else doc.get('title', '')
-                
-                authors = doc.get('author', [])
-                if isinstance(authors, str):
-                    authors = [authors]
-                
-                year = doc.get('year')
-                if isinstance(year, list) and year:
-                    year = int(year[0])
-                elif isinstance(year, str) and year.isdigit():
-                    year = int(year)
-                
-                abstract = doc.get('description', [''])[0] if isinstance(doc.get('description'), list) else doc.get('description', '')
-                url = doc.get('url', [''])[0] if isinstance(doc.get('url'), list) else doc.get('url', '')
-                
-                # Determine if it's a thesis or dissertation
-                degree_type = doc.get('degree', [''])[0] if isinstance(doc.get('degree'), list) else doc.get('degree', '')
-                doc_type = self._classify_thesis_type(title, abstract, degree_type)
-                
-                university = doc.get('publisher', [''])[0] if isinstance(doc.get('publisher'), list) else doc.get('publisher', '')
-                
-                relevance = self._calculate_relevance(title, abstract)
-                
-                if relevance > 0.3:
-                    bibtex_key = self._generate_bibtex_key(authors[0] if authors else "Unknown", year, title)
-                    
-                    books.append({
-                        'title': title,
-                        'authors': ', '.join(authors) if authors else 'Unknown',
-                        'year': year,
-                        'source': 'NDLTD',
-                        'url': url,
-                        'abstract': abstract,
-                        'license_type': 'Open Access',
-                        'relevance_score': relevance,
-                        'document_type': doc_type,
-                        'publisher': university,
-                        'bibtex_key': bibtex_key
-                    })
-                    
-            except Exception as e:
-                continue
-                
-        return books
-    
     def _classify_document_type(self, title: str, abstract: str, source: str, crossref_type: str = '') -> str:
         """Classify document type based on content and source"""
         text = f"{title} {abstract}".lower()
